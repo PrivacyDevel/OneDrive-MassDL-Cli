@@ -5,6 +5,7 @@ import sys
 import urllib.parse
 import sqlite3
 import os
+import argparse
 
 import requests
 
@@ -12,6 +13,10 @@ import requests
 conn = sqlite3.connect('data.db', timeout=sys.float_info.max)
 cur = conn.cursor()
 
+parser = argparse.ArgumentParser()
+parser.add_argument('URL', help='https://onedrive.live.com/?authkey=XXXXX&id=XXXXX&cid=XXXXX')
+parser.add_argument('-f', '--force-dirs', action='store_true', help='crawls through directories even if they are unchanged')
+args = parser.parse_args()
 
 def download_onedrive_folder(authkey, id, cid, folder):
 
@@ -20,7 +25,8 @@ def download_onedrive_folder(authkey, id, cid, folder):
         'd': 1,
         'authKey': authkey,
         'id': id,
-        'cid': cid
+        'cid': cid,
+        'ps': 2500 # max page size
     }
 
     headers = {
@@ -33,11 +39,13 @@ def download_onedrive_folder(authkey, id, cid, folder):
         if 'folder' in item:
             for child in item['folder']['children']:
 
-                # check if local copy is up to date
-                cur.execute('SELECT etag FROM download WHERE id = ?', (child['id'],))
-                rows = cur.fetchall()
-                if len(rows) == 1 and rows[0][0] == child['eTag']:
-                    continue
+                # check etag if child is a folder and force-dirs is true or if child is not a folder
+                if (child['itemType'] == 32 and not args.force_dirs) or child['itemType'] != 32:
+                    # check if local copy is up to date
+                    cur.execute('SELECT etag FROM download WHERE id = ?', (child['id'],))
+                    rows = cur.fetchall()
+                    if len(rows) == 1 and rows[0][0] == child['eTag']:
+                        continue
 
                 # if folder
                 if child['itemType'] == 32:
@@ -61,18 +69,12 @@ def download_onedrive_folder(authkey, id, cid, folder):
                 conn.commit()
 
 
-
-if len(sys.argv) != 2:
-    print('Usage: ', sys.argv[0], 'https://onedrive.live.com/?authkey=XXXXX&id=XXXXX&cid=XXXXX')
-    sys.exit(1)
-
-
 cur.execute('''CREATE TABLE IF NOT EXISTS download(
     id TEXT NOT NULL PRIMARY KEY,
     etag TEXT NOT NULL
 )''')
 
-url = urllib.parse.urlparse(sys.argv[1])
+url = urllib.parse.urlparse(args.URL)
 params = urllib.parse.parse_qs(url.query)
 
 data = {
