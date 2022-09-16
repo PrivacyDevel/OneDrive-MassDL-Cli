@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+
+import json
+import sys
+import urllib.parse
+import sqlite3
+import os
+
+import requests
+
+
+conn = sqlite3.connect('data.db', timeout=sys.float_info.max)
+cur = conn.cursor()
+
+
+def download_onedrive_folder(authkey, id, cid, folder):
+
+    data = {
+        'gb': '0,1,2',
+        'd': 1,
+        'authKey': authkey,
+        'id': id,
+        'cid': cid
+    }
+
+    headers = {
+        'AppId': '1141147648',
+        'Accept': 'application/json'
+    }
+
+    response = requests.get('https://skyapi.onedrive.live.com/API/2/GetItems', params=data, headers=headers).json()
+    for item in response['items']:
+        if 'folder' in item:
+            for child in item['folder']['children']:
+
+                # check if local copy is up to date
+                cur.execute('SELECT etag FROM download WHERE id = ?', (child['id'],))
+                rows = cur.fetchall()
+                if len(rows) == 1 and rows[0][0] == child['eTag']:
+                    continue
+
+                # if folder
+                if child['itemType'] == 32:
+                    path = folder + '/' + item['name'] + '/' + child['name']
+                    os.makedirs(path, exist_ok=True)
+                    print(path)
+                    download_onedrive_folder(data['authKey'], child['id'], child['resourcePartitionCid'], path)
+                # if file
+                elif child['itemType'] == 1:
+                    path = folder + '/' + child['name']
+                    if 'extension' in child:
+                        path += child['extension']
+                    print(path)
+                    with open(path, 'wb') as f:
+                        f.write(requests.get(child['urls']['download']).content)
+                else:
+                    raise Exception('Unknown itemType ' + str(item['itemType']))
+
+                # store Etag
+                cur.execute('INSERT OR REPLACE INTO download(id, etag) VALUES(?,?)', (child['id'], child['eTag']))
+                conn.commit()
+
+
+
+if len(sys.argv) != 2:
+    print('Usage: ', sys.argv[0], 'https://onedrive.live.com/?authkey=XXXXX&id=XXXXX&cid=XXXXX')
+    sys.exit(1)
+
+
+cur.execute('''CREATE TABLE IF NOT EXISTS download(
+    id TEXT NOT NULL PRIMARY KEY,
+    etag TEXT NOT NULL
+)''')
+
+url = urllib.parse.urlparse(sys.argv[1])
+params = urllib.parse.parse_qs(url.query)
+
+data = {
+    'authKey': urllib.parse.unquote(params['authkey'][0]),
+    'id': urllib.parse.unquote(params['id'][0]),
+    'cid': params['cid']
+}
+download_onedrive_folder(data['authKey'], data['id'], data['cid'], 'downloads')
+
