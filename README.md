@@ -12,3 +12,9 @@ To download a folder from OneDrive just execute the following command: \
 If the download gets interrupted for any reason or you want to download the files that have been updated since your last download, just run the same command again. \
 Only files that have been newly added or changed remotely are going to be download. Files that haven't changed will be skipped. \
 If you want to forcefully re-download those files, you need to delete the `data.db` file and run the command again.
+
+## Mirrors
+[Codeberg](https://codeberg.org/PrivacyDev/OneDrive-MassDL-Cli), [GitHub](https://github.com/PrivacyDevel/OneDrive-MassDL-Cli)
+
+## Donations
+[Monero (XMR)](https://www.getmonero.org/): `82sVVb5pUb12z7yUu6hCRhfyiW6BKcuis9CKHJJDMha4YhUDBHSQNE3aeP6KvM65SPeLDeLd5QidxYWBupsGoBGQ93vbtUH`
