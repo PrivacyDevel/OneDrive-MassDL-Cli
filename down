@@ -6,6 +6,7 @@ import urllib.parse
 import sqlite3
 import os
 import argparse
+import itertools
 
 import requests
 
@@ -34,39 +35,48 @@ def download_onedrive_folder(authkey, id, cid, folder):
         'Accept': 'application/json'
     }
 
-    response = requests.get('https://skyapi.onedrive.live.com/API/2/GetItems', params=data, headers=headers).json()
-    for item in response['items']:
-        if 'folder' in item:
-            for child in item['folder']['children']:
+    for count in itertools.count(data['ps'], data['ps']):
+        response = requests.get('https://skyapi.onedrive.live.com/API/2/GetItems', params=data, headers=headers)
+        response.raise_for_status()
+        for item in response.json()['items']:
+            if 'folder' in item:
+                for child in item['folder']['children']:
 
-                # check etag if child is a folder and force-dirs is true or if child is not a folder
-                if (child['itemType'] == 32 and not args.force_dirs) or child['itemType'] != 32:
-                    # check if local copy is up to date
-                    cur.execute('SELECT etag FROM download WHERE id = ?', (child['id'],))
-                    rows = cur.fetchall()
-                    if len(rows) == 1 and rows[0][0] == child['eTag']:
-                        continue
+                    # check etag if child is a folder and force-dirs is true or if child is not a folder
+                    if (child['itemType'] == 32 and not args.force_dirs) or child['itemType'] != 32:
+                        # check if local copy is up to date
+                        cur.execute('SELECT etag FROM download WHERE id = ?', (child['id'],))
+                        rows = cur.fetchall()
+                        if len(rows) == 1 and rows[0][0] == child['eTag']:
+                            continue
 
-                # if folder
-                if child['itemType'] == 32:
-                    path = folder + '/' + item['name'] + '/' + child['name']
-                    os.makedirs(path, exist_ok=True)
-                    print(path)
-                    download_onedrive_folder(data['authKey'], child['id'], child['resourcePartitionCid'], path)
-                # if file
-                elif child['itemType'] == 1:
-                    path = folder + '/' + child['name']
-                    if 'extension' in child:
-                        path += child['extension']
-                    print(path)
-                    with open(path, 'wb') as f:
-                        f.write(requests.get(child['urls']['download']).content)
+                    # if folder
+                    if child['itemType'] == 32:
+                        path = folder + '/' + item['name'] + '/' + child['name']
+                        os.makedirs(path, exist_ok=True)
+                        print(path)
+                        download_onedrive_folder(data['authKey'], child['id'], child['resourcePartitionCid'], path)
+                    # if file
+                    elif child['itemType'] == 1:
+                        path = folder + '/' + child['name']
+                        if 'extension' in child:
+                            path += child['extension']
+                        print(path)
+                        response = requests.get(child['urls']['download'])
+                        response.raise_for_status()
+                        with open(path, 'wb') as f:
+                            f.write(response.content)
+                    else:
+                        raise Exception('Unknown itemType ' + str(item['itemType']))
+
+                    # store Etag
+                    cur.execute('INSERT OR REPLACE INTO download(id, etag) VALUES(?,?)', (child['id'], child['eTag']))
+                    conn.commit()
+
+                if count < item['folder']['childCount']:
+                    data['si'] = count
                 else:
-                    raise Exception('Unknown itemType ' + str(item['itemType']))
-
-                # store Etag
-                cur.execute('INSERT OR REPLACE INTO download(id, etag) VALUES(?,?)', (child['id'], child['eTag']))
-                conn.commit()
+                    return
 
 
 cur.execute('''CREATE TABLE IF NOT EXISTS download(
